@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ghostlight</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon-512.png" />
+    <style>
+      :root { color-scheme: dark; --bg: #14121c; --ink: #f2eefb; --dim: #a59fbb; --coral: #ff7a66; }
+      body { margin: 0; background: var(--bg); color: var(--ink); font: 18px/1.4 system-ui, sans-serif; }
+      main { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
+      h1 { font-size: 28px; margin: 0 0 16px; }
+      .station { display: flex; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid #2c2838; }
+      .station span { flex: 1; }
+      button { font: inherit; padding: 10px 18px; border-radius: 10px; border: 0; background: var(--coral); color: #14121c; }
+      button.alt { background: #2c2838; color: var(--ink); }
+      pre { color: var(--dim); font-size: 13px; white-space: pre-wrap; margin-top: 24px; }
+      iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; }
+    </style>
+  </head>
+  <body>
+    <main id="shell">
+      <h1>Ghostlight</h1>
+      <div id="stations">Looking for stations…</div>
+      <pre id="log"></pre>
+    </main>
+    <script type="module">
+      // Spike #212: find stations through DNS, then load the game from one by import or in an iframe.
+      const ZONE = 'st.ghostlight-xr.com';
+      const PORTS = [443, ...Array.from({ length: 10 }, (_, n) => [8100 + 10 * n, 8101 + 10 * n]).flat()];
+      const started = performance.now();
+      const logEl = document.getElementById('log');
+      const log = (...parts) => {
+        const line = `${((performance.now() - started) / 1000).toFixed(2)}s ${parts.join(' ')}`;
+        console.log('[shell]', line);
+        logEl.textContent += line + '\n';
+      };
+      addEventListener('error', (e) => log('error:', e.message, e.filename ?? ''));
+      addEventListener('unhandledrejection', (e) => log('rejected:', String(e.reason)));
+      log('agent:', navigator.userAgent);
+      log('standalone:', matchMedia('(display-mode: standalone)').matches, 'xr:', 'xr' in navigator);
+
+      /** The records of one name and type, through DNS-over-HTTPS. */
+      async function dns(name, type) {
+        const url = `https://cloudflare-dns.com/dns-query?name=${name}&type=${type}`;
+        const answer = await (await fetch(url, { headers: { accept: 'application/dns-json' } })).json();
+        return (answer.Answer ?? []).map((a) => a.data.replace(/^"|"$/g, ''));
+      }
+      const isPrivate = (ip) => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip);
+
+      /** What a station says about itself, or null when it doesn't answer in time. */
+      async function probe(origin) {
+        try {
+          const response = await fetch(`${origin}/api/station`, { signal: AbortSignal.timeout(2500) });
+          return await response.json();
+        } catch (error) {
+          return null;
+        }
+      }
+
+      async function find() {
+        const ids = (await dns(`_stations.${ZONE}`, 'TXT')).flatMap((t) => t.split(/\s+/));
+        log('stations listed:', ids.join(', ') || 'none');
+        const found = [];
+        await Promise.all(
+          ids.map(async (id) => {
+            const host = `${id}.${ZONE}`;
+            const [ip] = await dns(host, 'A');
+            log(host, '→', ip ?? 'no address');
+            if (!ip || !isPrivate(ip)) return;
+            await Promise.all(
+              PORTS.map(async (port) => {
+                const origin = port === 443 ? `https://${host}` : `https://${host}:${port}`;
+                const about = await probe(origin);
+                if (about) found.push({ origin, ...about });
+              }),
+            );
+          }),
+        );
+        log('reachable:', found.map((s) => `${s.label} (${s.origin})`).join(', ') || 'none');
+        return found;
+      }
+
+      /** The game in this page: its scripts from the station, every relative URL resolved against it. */
+      async function loadByImport(origin) {
+        log('import from', origin);
+        const html = await (await fetch(`${origin}/`)).text();
+        const page = new DOMParser().parseFromString(html, 'text/html');
+        const base = document.createElement('base');
+        base.href = `${origin}/`;
+        document.head.prepend(base);
+        document.getElementById('shell').remove();
+        for (const node of page.body.children) document.body.append(document.importNode(node, true));
+        for (const old of page.querySelectorAll('script[src]')) {
+          const script = document.createElement('script');
+          script.type = old.type;
+          script.crossOrigin = 'anonymous';
+          script.src = new URL(old.getAttribute('src'), `${origin}/`).href;
+          script.onerror = () => console.error('[shell] script failed', script.src);
+          document.head.append(script);
+        }
+      }
+
+      /** The game in a frame of its own origin; this page only holds it. */
+      function loadInFrame(origin) {
+        log('iframe from', origin);
+        const frame = document.createElement('iframe');
+        frame.allow = 'xr-spatial-tracking; local-network-access; autoplay; fullscreen; camera; microphone';
+        frame.src = `${origin}/`;
+        document.getElementById('shell').remove();
+        document.body.append(frame);
+      }
+
+      const stations = await find();
+      const list = document.getElementById('stations');
+      list.textContent = stations.length ? '' : 'No station found on this network.';
+      for (const station of stations) {
+        const row = document.createElement('div');
+        row.className = 'station';
+        row.innerHTML = '<span></span><button>Play</button><button class="alt">In a frame</button>';
+        row.querySelector('span').textContent = station.label;
+        const [play, frame] = row.querySelectorAll('button');
+        play.onclick = () => loadByImport(station.origin);
+        frame.onclick = () => loadInFrame(station.origin);
+        list.append(row);
+      }
+      const auto = new URLSearchParams(location.search).get('auto');
+      if (stations.length === 1 && auto === 'import') loadByImport(stations[0].origin);
+      if (stations.length === 1 && auto === 'frame') loadInFrame(stations[0].origin);
+    </script>
+  </body>
+</html>

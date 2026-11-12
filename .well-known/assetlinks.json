@@ -1,0 +1,26 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.ghostlightxr.app",
+      "sha256_cert_fingerprints": [
+        "29:2E:90:59:60:82:97:8B:18:65:7F:F8:AE:EC:F7:B5:E7:DC:4F:CA:F4:18:D3:AE:A6:74:CC:D1:40:C6:AE:94"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.ghostlightxr.app.panel",
+      "sha256_cert_fingerprints": [
+        "29:2E:90:59:60:82:97:8B:18:65:7F:F8:AE:EC:F7:B5:E7:DC:4F:CA:F4:18:D3:AE:A6:74:CC:D1:40:C6:AE:94"
+      ]
+    }
+  }
+]

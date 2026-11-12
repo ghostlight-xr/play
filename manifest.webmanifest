@@ -1,0 +1,13 @@
+{
+  "name": "Ghostlight",
+  "short_name": "Ghostlight",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#14121c",
+  "theme_color": "#14121c",
+  "icons": [
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
